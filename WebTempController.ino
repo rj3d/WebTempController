@@ -61,10 +61,21 @@ void initControllerData(){
 }
 
 void updateControllerData(EthernetClient client){
-  TextFinder finder(client);
+  if( client.connected() ){
+    TextFinder finder(client);
+   //WARNING: If a post is received with set_temp= (i.e. empty form) this will freeze due to getFloat()
     if(finder.find("set_temp=")){
       cd.set_temp = finder.getFloat();
     }
+  }
+};
+
+boolean returnJSON(EthernetClient client){
+  if( client.connected() ){
+    TextFinder finder(client);  
+    return finder.find("JSON=true");
+  }
+  return false;
 };
 
 void checkCorrectOverflow(unsigned long time, unsigned long &last){
@@ -130,6 +141,27 @@ void updateRelays(){
      }
 };
 
+void outputJSON(EthernetClient client){
+   sensors.requestTemperatures();
+   float cur_temp = sensors.getTempFByIndex(0);
+   client.println("HTTP/1.1 200 OK");
+   client.println("Content-Type: application/json");
+   client.println();
+   client.print("{");
+   client.print("\"set_temp\" : ");
+   client.print(cd.set_temp);
+   client.print(",");
+   client.print("  \"cur_temp\" : ");
+   client.print(cur_temp);
+   client.print(",");
+   client.print("  \"heating\" : ");
+   client.print(cd.heating);
+   client.print(",");
+   client.print("  \"cooling\" : ");
+   client.print(cd.cooling);
+   client.println("}");
+ }
+
 void outputHeader(EthernetClient client){
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: text/html");
@@ -164,7 +196,10 @@ void outputRelayStatus(EthernetClient client){
 
 void outputForm(EthernetClient client){
     client.println("<FORM ACTION=\"http://192.168.1.177:88\" METHOD=\"post\">");
-    client.println("Temp Set: <INPUT TYPE=\"TEXT\" NAME=\"set_temp\" VALUE=\"\" SIZE=\"4\" MAXLENGTH=\"5\"><BR>");
+    client.println("Temp Set: <INPUT TYPE=\"TEXT\" NAME=\"set_temp\" VALUE=\"");
+    client.println(cd.set_temp);
+    client.println("\" SIZE=\"4\" MAXLENGTH=\"5\"><BR>");
+    client.println("Return JSON: <input type=\"CHECKBOX\" name=\"JSON\" value=\"true\"><br/>");
     client.println("<INPUT TYPE=\"SUBMIT\" NAME=\"submit\" VALUE=\"Submit\">");
     client.println("</FORM>");
     client.println("<BR>");
@@ -210,14 +245,21 @@ void loop() {
         
         if (c == '\n' && currentLineIsBlank) {
           // Use POST data to update ControllerData and update the relays accordingly.
-          updateControllerData(client);
+          updateControllerData(client); //WARNING: If the form is posted with set_temp= (i.e. empty form) this will freeze.
           updateRelays();
-          //Output HTML to client
-          outputHeader(client);
-          outputData(client);
-          outputRelayStatus(client);  
-          outputForm(client); 
-          outputFooter(client);       
+          //Output to client
+          if(returnJSON(client)){
+            Serial.println("Returning JSON");
+            outputJSON(client);
+          }
+          else{
+            Serial.println("Returning HTML");
+            outputHeader(client);
+            outputData(client);
+            outputRelayStatus(client);  
+            outputForm(client); 
+            outputFooter(client);
+          }       
           break;
         }
         
